@@ -20,7 +20,7 @@
 
 ### En el MVP SÍ está:
 - Chat guiado con IA que detecta tipo de reclamación
-- Preguntas dinámicas según el caso
+- Preguntas dinámicas según el caso (adaptadas por tipo)
 - Panel lateral con score de solidez (0-100), checklist visual
 - Subida de imágenes/documentos (sin análisis automático de imagen)
 - Descripción textual de la evidencia por parte del usuario
@@ -28,6 +28,7 @@
 - Generación de reclamación formal en texto
 - Descarga de PDF con el expediente
 - Análisis de respuesta negativa + contrarespuesta
+- Dos casos demo funcionales: cafetera rota + hotel en mal estado
 
 ### En el MVP NO está:
 - Login/registro
@@ -38,6 +39,7 @@
 - Multiusuario
 - OCR
 - Búsqueda jurídica por país
+- Análisis automático de imágenes (modelos sin visión)
 
 ---
 
@@ -71,8 +73,8 @@
 Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
 - La subida de imágenes **se almacena pero no se analiza automáticamente**
 - El usuario puede subir fotos como evidencia, pero la IA no puede "ver" el contenido
-- El score se actualiza manualmente cuando el usuario confirma que subió una foto
-- **Futuro:** Integración con API de visión (ej. GPT-4o) cuando esté disponible
+- El score se actualiza cuando el usuario confirma que subió una foto + describe su contenido
+- **Futuro:** Integración con API de visión cuando esté disponible
 
 ### Estrategia para la demo con esta limitación:
 - El usuario dice "tengo foto" → la IA pregunta "¿puedes describir lo que se ve en la foto?"
@@ -87,11 +89,6 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
 - Deploy en Vercel en 1 minuto
 - Menos coordinación entre personas
 - Perfecto para hackathon
-
-### Alternativa si prefieren separar:
-- Backend: Python FastAPI
-- Frontend: Next.js
-- Pero suma complejidad innecesaria para una semana
 
 ---
 
@@ -130,34 +127,73 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
     "fechaEntrega": "2026-06-07",
     "numeroPedido": "AMZ-12345",
     "tienda": "Amazon",
-    "importe": "59.99",
+    "importe": "189.00",
     "fotoProducto": true,
     "fotoEmbalaje": false,
-    "factura": false,
-    "fechaCompra": "2026-06-01"
+    "factura": true,
+    "fechaCompra": "2026-06-01",
+    "empresaImplicada": "Amazon",
+    "descripcionDanio": "Base de la cafetera partida, caja golpeada"
   },
+  "timeline": [
+    {
+      "date": "2026-06-01",
+      "event": "Compra realizada",
+      "source": "factura"
+    },
+    {
+      "date": "2026-06-07",
+      "event": "Entrega del paquete",
+      "source": "usuario"
+    },
+    {
+      "date": "2026-06-07",
+      "event": "Descubrimiento del daño",
+      "source": "usuario"
+    }
+  ],
   "score": {
     "total": 51,
     "breakdown": {
       "problemaExplicado": 15,
-      "evidenciaVisual": 20,
-      "datosFactura": 0,
+      "fotoProducto": 15,
+      "fotoEmbalaje": 0,
+      "facturaPedido": 12,
       "fechaEntrega": 8,
-      "numeroPedido": 8,
-      "testimonios": 0
+      "descripcionDetallada": 0,
+      "comunicacionPrevia": 0,
+      "datosPersonales": 0,
+      "empresaIdentificada": 1
     }
   },
   "checklist": [
-    {"item": "Problema explicado", "done": true, "weight": 15},
-    {"item": "Foto del producto", "done": true, "weight": 15},
-    {"item": "Foto del embalaje", "done": false, "weight": 10},
-    {"item": "Factura/num. pedido", "done": true, "weight": 12},
-    {"item": "Fecha de entrega", "done": true, "weight": 8},
-    {"item": "Testimonios", "done": false, "weight": 0}
+    {"item": "Problema explicado", "done": true, "weight": 15, "key": "problemaExplicado"},
+    {"item": "Foto del producto", "done": true, "weight": 15, "key": "fotoProducto"},
+    {"item": "Foto del embalaje", "done": false, "weight": 10, "key": "fotoEmbalaje"},
+    {"item": "Factura / nº pedido", "done": true, "weight": 12, "key": "facturaPedido"},
+    {"item": "Fecha de entrega", "done": true, "weight": 8, "key": "fechaEntrega"},
+    {"item": "Descripción detallada del daño", "done": false, "weight": 10, "key": "descripcionDetallada"},
+    {"item": "Comunicación previa con empresa", "done": false, "weight": 8, "key": "comunicacionPrevia"},
+    {"item": "Datos personales", "done": false, "weight": 5, "key": "datosPersonales"},
+    {"item": "Empresa identificada", "done": true, "weight": 1, "key": "empresaIdentificada"}
   ],
   "companyResponse": null,
   "claimGenerated": false,
   "pdfGenerated": false
+}
+```
+
+### Estructura de companyResponse (cuando se llena):
+```json
+{
+  "companyResponse": {
+    "originalText": "Lamentamos informarle que...",
+    "analyzedAt": "2026-06-09T12:00:00Z",
+    "analysis": "La empresa rechaza pero no responde a la evidencia del embalaje...",
+    "weaknesses": ["No menciona garantía", "Plazo excedido"],
+    "recommendation": "Enviar respuesta firme adjuntando evidencia",
+    "counterReply": "Contrarespuesta generada..."
+  }
 }
 ```
 
@@ -174,6 +210,44 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
 | `rental` | Alquiler/vivienda | 100 |
 | `other` | Otro | 100 |
 
+### Plantillas de preguntas por tipo de reclamación:
+
+#### damaged_product (Producto recibido dañado)
+1. ¿Qué producto es y qué daño tiene?
+2. ¿Tienes foto del producto dañado?
+3. ¿Tienes foto del embalaje/caja?
+4. ¿Tienes factura o captura del pedido?
+5. ¿Cuándo llegó el paquete?
+6. ¿Cuál es el importe?
+7. ¿Ya contactaste con la tienda?
+
+#### bad_hotel (Hotel en mal estado)
+1. ¿Qué problema encontraste en el hotel?
+2. ¿Tienes fotos del problema?
+3. ¿Cuándo fue tu estancia?
+4. ¿Tienes la reserva/confirmación?
+5. ¿Qué precio pagaste?
+6. ¿Comunicaste el problema en recepción?
+7. ¿Qué respuesta te dieron?
+8. ¿Buscaste alternativa de alojamiento?
+
+#### damaged_luggage (Maleta dañada)
+1. ¿En qué vuelo viajaste?
+2. ¿Qué daño tiene la maleta?
+3. ¿Tienes foto de la maleta dañada?
+4. ¿Tienes la etiqueta de equipaje?
+5. ¿Presentaste parte en el aeropuerto?
+6. ¿Tienes el billete de avión?
+7. ¿Cuál es el importe de la maleta?
+
+#### bad_repair (Reparación mal hecha)
+1. ¿Qué se reparó y por qué empresa?
+2. ¿Tienes fotos del resultado?
+3. ¿Tienes el presupuesto original?
+4. ¿Tienes la factura de la reparación?
+5. ¿Cuándo se hizo la reparación?
+6. ¿Contactaste con el reparador?
+
 ---
 
 ## 5. Endpoints Necesarios
@@ -184,7 +258,7 @@ POST   /api/session/:id/message      → Envía mensaje del usuario
 POST   /api/session/:id/upload       → Sube archivo (imagen/doc)
 GET    /api/session/:id/state        → Obtiene estado actual (score, checklist, data)
 POST   /api/session/:id/generate     → Genera expediente completo
-GET    /api/session/:id/pdf          → Descarga PDF del expediente
+POST   /api/session/:id/pdf          → Genera y descarga PDF
 POST   /api/session/:id/company-reply → Analiza respuesta de empresa
 POST   /api/session/:id/counter      → Genera contrarespuesta
 ```
@@ -193,7 +267,10 @@ POST   /api/session/:id/counter      → Genera contrarespuesta
 
 #### POST /api/session/new
 ```json
-Response: { "sessionId": "abc123", "firstMessage": "Hola, cuéntame..." }
+Response: {
+  "sessionId": "abc123",
+  "firstMessage": "Hola, soy AutoclAIm. Cuéntame qué ha pasado y te ayudo a construir un caso sólido."
+}
 ```
 
 #### POST /api/session/:id/message
@@ -202,9 +279,12 @@ Request: { "message": "Me ha llegado una cafetera rota" }
 Response: {
   "reply": "Parece una reclamación por producto dañado...",
   "claimType": "damaged_product",
+  "claimTypeLabel": "Producto recibido dañado",
   "score": { "total": 32, "breakdown": {...} },
   "checklist": [...],
-  "nextQuestion": "¿Tienes foto de la caja?"
+  "extractedData": {...},
+  "timeline": [...],
+  "isComplete": false
 }
 ```
 
@@ -212,7 +292,7 @@ Response: {
 ```json
 Request: multipart/form-data con archivo
 Response: {
-  "evidence": { "id": "ev1", "type": "image", "url": "..." },
+  "evidence": { "id": "ev1", "type": "image", "url": "...", "description": "" },
   "score": { "total": 51, ... },
   "checklist": [...],
   "aiComment": "Esto refuerza el caso porque..."
@@ -222,12 +302,16 @@ Response: {
 #### GET /api/session/:id/state
 ```json
 Response: {
+  "sessionId": "abc123",
+  "claimType": "damaged_product",
+  "claimTypeLabel": "Producto recibido dañado",
   "score": {...},
   "checklist": [...],
   "extractedData": {...},
   "evidence": [...],
-  "claimType": "damaged_product",
-  "claimTypeLabel": "Producto recibido dañado"
+  "timeline": [...],
+  "companyResponse": null,
+  "claimGenerated": false
 }
 ```
 
@@ -236,10 +320,16 @@ Response: {
 Response: {
   "claim": "RECLAMACIÓN FORMAL...",
   "summary": "Resumen del caso...",
-  "timeline": "...",
+  "timeline": [...],
+  "nextSteps": ["Enviar por registro...", "Guardar copias..."],
   "checklist": "Próximos pasos...",
-  "pdfUrl": "/api/session/:id/pdf"
+  "pdfAvailable": true
 }
+```
+
+#### POST /api/session/:id/pdf
+```json
+Response: Binary PDF file (Content-Type: application/pdf)
 ```
 
 #### POST /api/session/:id/company-reply
@@ -248,7 +338,8 @@ Request: { "reply": "Lamentamos informarle que..." }
 Response: {
   "analysis": "Análisis de puntos débiles...",
   "weaknesses": ["No menciona garantía", "Plazo excedido"],
-  "recommendation": "Reclamar amparándose en..."
+  "recommendation": "Reclamar amparándose en...",
+  "counterReply": "Contrarespuesta firme..."
 }
 ```
 
@@ -297,13 +388,14 @@ Tu trabajo:
 1. Analiza qué datos faltan para construir un caso sólido
 2. Haz UNA pregunta concreta sobre el dato más importante que falta
 3. Explica brevemente por qué necesitas ese dato
-4. Si ya tienes suficiente información, indica que puedes generar el expediente
+4. Si ya tienes suficiente información (score >= 75), indica que puedes generar el expediente
 
 Reglas:
 - Nunca repitas preguntas ya hechas
 - Prioriza: fotos/evidencia > fechas > números de pedido > importes > otros
 - Sé conciso: máximo 2-3 frases
 - Si el usuario dio información vaga, pide concreción
+- Adapta el lenguaje al tipo de reclamación (no pidas "nº de pedido" si es un hotel)
 ```
 
 ### Prompt 3: Cálculo de score
@@ -317,15 +409,20 @@ Evidencias: [EVIDENCE_LIST]
 
 Calcula un score del 0 al 100 basado en estos factores (suman 100):
 - Problema bien explicado: 15 puntos
-- Foto del producto dañado: 15 puntos
-- Foto del embalaje: 10 puntos
+- Foto del producto/daño: 15 puntos
+- Foto del embalaje/entorno: 10 puntos
 - Factura o número de pedido: 12 puntos
-- Fecha exacta de compra/entrega: 8 puntos
-- Descripción detallada del daño: 10 puntos
+- Fecha exacta de compra/entrega/estancia: 8 puntos
+- Descripción detallada del daño/problema: 10 puntos
 - Comunicación previa con la empresa: 8 puntos
-- Testimonios o pruebas adicionales: 7 puntos
 - Datos personales completos: 5 puntos
-- Información del transportista: 10 puntos
+- Empresa/destinatario identificado: 7 puntos
+- Testimonios o pruebas adicionales: 10 puntos
+
+IMPORTANTE: Adapta los factores al tipo de reclamación. Por ejemplo:
+- Si es "bad_hotel": "foto del embalaje" NO aplica, pero sí "comunicación con recepción"
+- Si es "damaged_luggage": "factura" se sustituye por "etiqueta de equipaje"
+- Si es "bank_charge": "foto del producto" NO aplica, pero sí "captura del cargo"
 
 Devuelve JSON con:
 {
@@ -382,7 +479,7 @@ Analiza:
 4. Si mencionan plazos o condiciones que podemos cuestionar
 5. Recomendación de siguiente acción concreta
 
-Sé analítico y preciso. Identifica cada point débil con su contraargumento.
+Sé analítico y preciso. Identifica cada punto débil con su contraargumento.
 ```
 
 ### Prompt 6: Contrarespuesta
@@ -409,7 +506,7 @@ Extensión: 1 página.
 
 ## 7. División de Tareas
 
-### Persona A — Backend
+### Norbert — Backend
 
 #### Día 1 (Martes 9)
 - [ ] Configurar proyecto Next.js
@@ -420,7 +517,7 @@ Extensión: 1 página.
 - [ ] Integrar modelo de IA para generación de siguiente pregunta
 
 #### Día 2 (Miércoles 10)
-- [ ] Implementar cálculo de score (Prompt 3)
+- [ ] Implementar cálculo de score (Prompt 3) con factores dinámicos por tipo
 - [ ] Implementar `GET /api/session/:id/state`
 - [ ] Implementar `POST /api/session/:id/upload` (subida de archivos)
 - [ ] Almacenamiento de sesión (JSON en memoria o archivo)
@@ -429,8 +526,8 @@ Extensión: 1 página.
 #### Día 3 (Jueves 11)
 - [ ] Implementar `POST /api/session/:id/generate` (generación de reclamación)
 - [ ] Integrar Prompt 4 para reclamación formal
-- [ ] Generación de PDF (usar @react-pdf/renderer o puppeteer)
-- [ ] Implementar `GET /api/session/:id/pdf`
+- [ ] Generación de PDF (usar @react-pdf/renderer)
+- [ ] Implementar `POST /api/session/:id/pdf`
 
 #### Día 4 (Viernes 12)
 - [ ] Implementar `POST /api/session/:id/company-reply`
@@ -441,13 +538,13 @@ Extensión: 1 página.
 
 #### Día 5 (Sábado 13)
 - [ ] Bugfixing
-- [ ] Preparar datos demo
-- [ ] Ayudar a Persona C con la demo
+- [ ] Preparar datos demo (cafetera + hotel)
+- [ ] Ayudar a Daniel con la demo
 - [ ] Últimos ajustes backend
 
 ---
 
-### Persona B — Frontend
+### Jospaquim — Frontend
 
 #### Día 1 (Martes 9)
 - [ ] Configurar interfaz base
@@ -482,21 +579,21 @@ Extensión: 1 página.
 - [ ] Estados de error y loading
 - [ ] Responsive básico
 - [ ] Preparar entorno demo
-- [ ] Ayudar a Persona C con el pitch
+- [ ] Ayudar a Daniel con el pitch
 
 ---
 
-### Persona C — Fullstack / Coordinador
+### Daniel — Fullstack / Coordinador
 
 #### Día 1 (Martes 9)
 - [ ] Definir stack técnico final
 - [ ] Crear repo y estructura
-- [ ] Definir prompts detallados junto a Persona A
+- [ ] Definir prompts detallados junto a Norbert
 - [ ] Crear flujo de demo paso a paso
-- [ ] Definir datos del caso demo principal
+- [ ] Definir datos del caso demo principal (cafetera)
 
 #### Día 2 (Miércoles 10)
-- [ ] Revisar progreso de A y B
+- [ ] Revisar progreso de Norbert y Jospaquim
 - [ ] Ajustar prompts según resultados
 - [ ] Crear caso demo completo (cafetera rota)
 - [ ] Preparar respuestas del usuario para el demo
@@ -506,13 +603,13 @@ Extensión: 1 página.
 - [ ] Coordinar integración frontend/backend
 - [ ] Probar flujo completo end-to-end
 - [ ] Identificar bugs críticos
-- [ ] Crear segundo caso demo (backup)
+- [ ] Crear segundo caso demo: hotel en mal estado
 - [ ] Definir narrativa del pitch
 
 #### Día 4 (Viernes 12)
-- [ ] Pulir UI junto a Persona B
+- [ ] Pulir UI junto a Jospaquim
 - [ ] Coordinar generación de PDF
-- [ ] Preparar datos para la demo
+- [ ] Preparar datos para ambos demos
 - [ ] Ensayar la demo
 - [ ] Preparar pitch de 3 minutos
 
@@ -532,9 +629,9 @@ Extensión: 1 página.
 
 | Persona | Tarea |
 |---------|-------|
-| A | Setup proyecto, endpoints básicos, integración de modelo IA |
-| B | Layout dos paneles, chat básico, conexión con API |
-| C | Definir stack, prompts, caso demo, estructura |
+| Norbert | Setup proyecto, endpoints básicos, integración de modelo IA |
+| Jospaquim | Layout dos paneles, chat básico, conexión con API |
+| Daniel | Definir stack, prompts, caso demo, estructura |
 
 **Entregable del día:** Chat funcional que detecta tipo de reclamación y hace una pregunta.
 
@@ -545,9 +642,9 @@ Extensión: 1 página.
 
 | Persona | Tarea |
 |---------|-------|
-| A | Score, estado de sesión, subida de archivos |
-| B | Chat completo, panel lateral, polling |
-| C | Ajustar prompts, preparar caso demo |
+| Norbert | Score dinámico por tipo, estado de sesión, subida de archivos |
+| Jospaquim | Chat completo, panel lateral, polling |
+| Daniel | Ajustar prompts, preparar caso demo cafetera |
 
 **Entregable del día:** El usuario puede chatear, subir foto, y ver el score subir.
 
@@ -558,9 +655,9 @@ Extensión: 1 página.
 
 | Persona | Tarea |
 |---------|-------|
-| A | Generación de reclamación, PDF |
-| B | Subida de archivos con preview, animaciones |
-| C | Coordinar integración, probar end-to-end |
+| Norbert | Generación de reclamación, PDF |
+| Jospaquim | Subida de archivos con preview, animaciones |
+| Daniel | Coordinar integración, crear caso demo hotel, probar end-to-end |
 
 **Entregable del día:** Flujo completo: chat → reclamación → PDF descargable.
 
@@ -571,9 +668,9 @@ Extensión: 1 página.
 
 | Persona | Tarea |
 |---------|-------|
-| A | Análisis de respuesta, contrarespuesta |
-| B | Vista de análisis, contrarespuesta, botón PDF |
-| C | Pulir UI, preparar pitch, ensayar |
+| Norbert | Análisis de respuesta, contrarespuesta |
+| Jospaquim | Vista de análisis, contrarespuesta, botón PDF |
+| Daniel | Pulir UI, preparar pitch, ensayar demo con ambos casos |
 
 **Entregable del día:** Demo completa funcional con contrarespuesta.
 
@@ -584,9 +681,9 @@ Extensión: 1 página.
 
 | Persona | Tarea |
 |---------|-------|
-| A | Bugfixing final, soporte |
-| B | Últimos ajustes UI |
-| C | Ensayo final, presentación |
+| Norbert | Bugfixing final, soporte |
+| Jospaquim | Últimos ajustes UI |
+| Daniel | Ensayo final, presentación |
 
 **Entregable del día:** Demo presentada al jurado.
 
@@ -609,6 +706,7 @@ Extensión: 1 página.
 10. Comentario de la IA al subir evidencia ("esto refuerza tu caso")
 11. Análisis de respuesta negativa
 12. Contrarespuesta generada
+13. Segundo caso demo funcional (hotel)
 
 ---
 
@@ -621,7 +719,7 @@ Extensión: 1 página.
 - Guía de derechos por país
 - Ejemplos de casos exitosos
 - Testimonios ficticios
--sonido de notificación al subir evidencia
+- Sonido de notificación al subir evidencia
 
 ---
 
@@ -636,16 +734,16 @@ Extensión: 1 página.
 | Score no es consistente | Medio | Prompt de scoring con ejemplos. Validar que suma 100. Cache de cálculos. |
 | Tiempo insuficiente | Alto | MVP ultra-minimalista: chat + score + 1 generación. Lo demás es bonus. |
 | La demo no funciona en vivo | Crítico | Tener demo grabada como backup. Preparar datos hardcodeados por si falla la IA. |
-| UI fea o confusa | Medio | Persona C revisa UI cada día. Usar componentes existentes (shadcn/ui o similar). |
+| UI fea o confusa | Medio | Daniel revisa UI cada día. Usar componentes existentes (shadcn/ui o similar). |
 
 ---
 
-## 12. Guion de Demo (3 minutos)
+## 12. Guion de Demo (3-4 minutos)
 
-### Minuto 0-1: Contexto
+### Minuto 0-0:30: Contexto
 > "¿Alguna vez han recibido un producto roto y no sabían cómo reclamar? O peor: han reclamado y la empresa les ha dicho que no. AutoclAIm es una IA que no solo escribe reclamaciones: construye casos sólidos, paso a paso."
 
-### Minuto 1-2: Demo en vivo
+### Minuto 0:30-2:00: Demo Caso 1 — Cafetera rota
 **Acción:** Abrir la app. Escribir:
 > "Me ha llegado una cafetera rota. La caja venía golpeada y quiero reclamar."
 
@@ -653,9 +751,9 @@ Extensión: 1 página.
 
 **Acción:** Subir una foto (preparada).
 
-**Pantalla:** Score sube de 32 a 51. Panel lateral se actualiza. IA comenta: "Esto refuerza tu caso."
+**Pantalla:** Score sube de 32 a 51. Panel lateral se actualiza. IA comenta: "Esto refuerza tu caso porque muestra posible daño durante el transporte."
 
-**Acción:** Responder con datos (factura, fecha, etc.)
+**Acción:** Responder con datos (factura, fecha, importe).
 
 **Pantalla:** Score sube a 78. Checklist se va completando.
 
@@ -663,8 +761,21 @@ Extensión: 1 página.
 
 **Pantalla:** Reclamación formal aparece. PDF descargable.
 
-### Minuto 2-3: Contrarespuesta
-> "Pero ¿qué pasa cuando la empresa dice que no? Miren esto."
+### Minuto 2:00-2:30: Transición
+> "Pero AutoclAIm no sirve solo para productos. Miren este otro caso."
+
+### Minuto 2:30-3:15: Demo Caso 2 — Hotel en mal estado
+**Acción:** Empezar nueva sesión. Escribir:
+> "Me alojé en un hotel y la habitación estaba sucia, el aire acondicionado no funcionaba y había cucarachas."
+
+**Pantalla:** La IA detecta "Hotel en mal estado". Pregunta: "¿Tienes fotos de los problemas? ¿Comunicaste algo en recepción?"
+
+**Acción:** Subir fotos y responder.
+
+**Pantalla:** Score sube. IA adapta sus preguntas al contexto hotelero (reserva, precio, respuesta del hotel).
+
+### Minuto 3:15-3:45: Contrarespuesta
+> "Ahora veamos qué pasa cuando la empresa dice que no."
 
 **Acción:** Pegar respuesta negativa de empresa (preparada).
 
@@ -716,11 +827,48 @@ AutoclAIm/
 │       └── index.ts               # Tipos TypeScript
 ├── public/
 │   └── uploads/                   # Archivos subidos
+├── .gitignore
 ├── package.json
 ├── tsconfig.json
 ├── next.config.js
 └── .env.local                     # API keys de modelos
 ```
+
+---
+
+## Casos Demo Preparados
+
+### Caso 1: Cafetera rota (Principal)
+**Entrada del usuario:**
+> "Me ha llegado una cafetera rota. La caja venía golpeada y quiero reclamar."
+
+**Datos que irá aportando:**
+- Foto de la caja golpeada
+- Foto de la cafetera con la base partida
+- Factura de Amazon: 189€
+- Fecha de entrega: hace 2 días
+- Número de pedido: AMZ-2026-78542
+
+**Respuesta negativa de empresa (para contrarespuesta):**
+> "Tras revisar su caso, lamentamos informarle que no podemos confirmar que el daño se produjera durante el transporte. Le recomendamos contactar con su aseguradora."
+
+**Score esperado final:** 82/100
+
+### Caso 2: Hotel en mal estado (Backup)
+**Entrada del usuario:**
+> "Me alojé en un hotel y la habitación estaba sucia, el aire acondicionado no funcionaba y había cucarachas."
+
+**Datos que irá aportando:**
+- Fotos de la habitación sucia
+- Fotos de las cucarachas
+- Reserva confirmada: Hotel Paradiso, 3 noches, 285€
+- Comunicó en recepción → le dijeron "no podemos hacer nada"
+- No le ofrecieron alternativa
+
+**Respuesta negativa de empresa (para contrarespuesta):**
+> "Estimado cliente, lamentamos su experiencia. Nuestros estándares de limpieza son elevados. No disponemos de registros de su queja en recepción. Le ofrecemos un 10% de descuento en su próxima estancia."
+
+**Score esperado final:** 75/100
 
 ---
 
@@ -733,7 +881,8 @@ Antes de empezar el martes:
 - [ ] Cuenta de Vercel para deploy
 - [ ] Repo creado en GitHub
 - [ ] Equipo en comunicación (Discord/Slack)
-- [ ] Caso demo preparado (datos, fotos, respuestas)
+- [ ] Caso demo cafetera preparado (datos, fotos, respuestas)
+- [ ] Caso demo hotel preparado (datos, fotos, respuestas)
 - [ ] Prompts finales revisados por el equipo
 - [ ] Estrategia para imágenes sin visión definida (descripción textual)
 
