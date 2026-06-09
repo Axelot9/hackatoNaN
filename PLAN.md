@@ -1,4 +1,4 @@
-# AutoclAIm — Plan de Hackathon
+# AutoclAIm — Plan de Hackathon v2
 
 ## 1. Resumen del Producto
 
@@ -22,11 +22,11 @@
 - Chat guiado con IA que detecta tipo de reclamación
 - Preguntas dinámicas según el caso (adaptadas por tipo)
 - Panel lateral con score de solidez (0-100), checklist visual
-- Subida de imágenes/documentos (sin análisis automático de imagen)
+- Subida de imágenes/documentos con análisis visual (MiMo 2.5)
 - Descripción textual de la evidencia por parte del usuario
 - Generación de expediente resumen
 - Generación de reclamación formal en texto
-- Descarga de PDF con el expediente
+- Descarga de PDF con el expediente (renderizado en cliente)
 - Análisis de respuesta negativa + contrarespuesta
 - Dos casos demo funcionales: cafetera rota + hotel en mal estado
 
@@ -39,68 +39,122 @@
 - Multiusuario
 - OCR
 - Búsqueda jurídica por país
-- Análisis automático de imágenes (modelos sin visión)
 
 ---
 
 ## 3. Arquitectura Técnica Recomendada
 
-### Stack rápido para hackathon:
+### Stack para hackathon:
 
 ```
-┌─────────────────────────────────────────┐
-│           Frontend (Next.js)            │
-│  Chat + Panel lateral + PDF viewer      │
-└──────────────┬──────────────────────────┘
-               │ REST API
-┌──────────────▼──────────────────────────┐
-│           Backend (Next.js API)          │
-│  Endpoints + IA + Score + PDF           │
-└──────────────┬──────────────────────────┘
+┌─────────────────────────────────────────────┐
+│           Frontend (Next.js)                │
+│  Layout NotebookLM + Panel lateral + PDF    │
+│  Vercel AI SDK (Streaming)                  │
+└──────────────┬──────────────────────────────┘
+               │ REST API + Streaming
+┌──────────────▼──────────────────────────────┐
+│           Backend (Next.js API)              │
+│  Endpoints + IA + Score + Supabase client    │
+└──────────────┬──────────────────────────────┘
                │
-┌──────────────▼──────────────────────────┐
-│     Qwen 3.6 / DeepSeek / MiMo v2.5     │
-│  Detección + Preguntas + Reclamación    │
-└─────────────────────────────────────────┘
+┌──────────────▼──────────────────────────────┐
+│     Qwen 3.6 / DeepSeek / MiMo v2.5         │
+│  Detección + Preguntas + Reclamación        │
+│  MiMo 2.5 → Visión (análisis de imágenes)   │
+└─────────────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────┐
+│           Supabase                          │
+│  Sesiones + Archivos (URLs públicas)        │
+└─────────────────────────────────────────────┘
 ```
 
 ### Modelos disponibles (restricción del hackathon):
 - **Qwen 3.6** — modelo principal (buen balance calidad/velocidad)
 - **DeepSeek** — alternativa para generación de reclamación formal
-- **MiMo v2.5** — alternativa para análisis de respuesta negativa
+- **MiMo v2.5** — análisis de imágenes (visión) + alternativa para análisis de respuesta negativa
 
-### Limitación importante: Sin análisis de imagen
-Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
-- La subida de imágenes **se almacena pero no se analiza automáticamente**
-- El usuario puede subir fotos como evidencia, pero la IA no puede "ver" el contenido
-- El score se actualiza cuando el usuario confirma que subió una foto + describe su contenido
-- **Futuro:** Integración con API de visión cuando esté disponible
+### Novedades técnicas respecto a v1:
 
-### Estrategia para la demo con esta limitación:
-- El usuario dice "tengo foto" → la IA pregunta "¿puedes describir lo que se ve en la foto?"
-- La IA extrae información de la descripción textual
-- El score sube cuando el usuario confirma la subida + describe el contenido
-- En la demo, tener las fotos pre-cargadas y la descripción preparada
+#### Supabase (en lugar de JSON en disco)
+- Jose monta Supabase
+- Sesiones guardadas en tabla `sessions`
+- Archivos subidos directamente a Supabase Storage
+- Se pasa la URL pública al modelo de IA
+- Sin almacenamiento local de archivos
+
+#### Streaming con Vercel AI SDK (en lugar de polling)
+- Todo el texto de la IA se transmite en streaming
+- El usuario ve el mensaje aparecer carácter por carácter
+- Sin polling, sin esperas, sin estados intermedios
+- Experiencia más fluida y profesional
+
+#### Visión con MiMo 2.5 (en lugar de sin visión)
+- El usuario sube la foto directo a Supabase Storage
+- Se obtiene la URL pública
+- Esa URL se pasa a MiMo 2.5 para análisis visual
+- La IA puede describir lo que ve en la imagen
+- El score se actualiza automáticamente al analizar la imagen
+
+#### PDF renderizado en cliente (en lugar de servidor)
+- El PDF se genera en el navegador del usuario
+- Sin depender del servidor para la generación
+- Librería: @react-pdf/renderer
+- Descarga instantánea sin esperar al backend
+
+#### Layout tipo NotebookLM (en lugar de chat tradicional)
+- No es una ventana de chat convencional
+- Diseño similar a NotebookLM de Google:
+  - Columna izquierda: conversación / preguntas de la IA
+  - Columna central: respuestas del usuario + subida de archivos
+  - Columna derecha: panel de expediente vivo (score, checklist, pruebas)
+- Sensación de "asistente de investigación" en lugar de "chatbot"
+- Más serio, más profesional, más diferencial
 
 ### ¿Por qué Next.js para todo?
 - Un solo repo, un solo deploy
 - API routes funcionan como backend
 - Frontend React incluido
 - Deploy en Vercel en 1 minuto
-- Menos coordinación entre personas
+- Vercel AI SDK nativo para streaming
 - Perfecto para hackathon
 
 ---
 
 ## 4. Modelo de Datos Mínimo
 
-### Session (en memoria o JSON en disco)
+### Supabase — Tabla sessions
+```sql
+CREATE TABLE sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  claim_type TEXT,
+  claim_type_label TEXT,
+  messages JSONB DEFAULT '[]'::jsonb,
+  evidence JSONB DEFAULT '[]'::jsonb,
+  extracted_data JSONB DEFAULT '{}'::jsonb,
+  timeline JSONB DEFAULT '[]'::jsonb,
+  score JSONB DEFAULT '{"total": 0, "breakdown": {}}'::jsonb,
+  checklist JSONB DEFAULT '[]'::jsonb,
+  company_response JSONB DEFAULT NULL,
+  claim_generated BOOLEAN DEFAULT FALSE,
+  pdf_generated BOOLEAN DEFAULT FALSE
+);
+```
+
+### Supabase — Storage
+- Bucket: `claim-evidence`
+- Archivos organizados por sesión: `{sessionId}/{filename}`
+- URLs públicas accesibles desde el frontend y la IA
+
+### Session (estructura JSONB en Supabase)
 ```json
 {
-  "sessionId": "abc123",
-  "createdAt": "2026-06-09T10:00:00Z",
-  "claimType": "damaged_product",
-  "claimTypeLabel": "Producto recibido dañado",
+  "id": "abc123",
+  "created_at": "2026-06-09T10:00:00Z",
+  "claim_type": "damaged_product",
+  "claim_type_label": "Producto recibido dañado",
   "messages": [
     {
       "role": "user",
@@ -117,12 +171,13 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
     {
       "id": "ev1",
       "type": "image",
-      "url": "/uploads/photo1.jpg",
+      "url": "https://supabase.co/storage/v1/object/public/claim-evidence/abc123/caja-golpeada.jpg",
       "description": "Foto de la caja golpeada",
-      "addedAt": "2026-06-09T10:05:00Z"
+      "ai_analysis": "Se observa un golpe en la esquina superior derecha de la caja...",
+      "added_at": "2026-06-09T10:05:00Z"
     }
   ],
-  "extractedData": {
+  "extracted_data": {
     "problema": "Cafetera rota al llegar",
     "fechaEntrega": "2026-06-07",
     "numeroPedido": "AMZ-12345",
@@ -136,21 +191,9 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
     "descripcionDanio": "Base de la cafetera partida, caja golpeada"
   },
   "timeline": [
-    {
-      "date": "2026-06-01",
-      "event": "Compra realizada",
-      "source": "factura"
-    },
-    {
-      "date": "2026-06-07",
-      "event": "Entrega del paquete",
-      "source": "usuario"
-    },
-    {
-      "date": "2026-06-07",
-      "event": "Descubrimiento del daño",
-      "source": "usuario"
-    }
+    { "date": "2026-06-01", "event": "Compra realizada", "source": "factura" },
+    { "date": "2026-06-07", "event": "Entrega del paquete", "source": "usuario" },
+    { "date": "2026-06-07", "event": "Descubrimiento del daño", "source": "usuario" }
   ],
   "score": {
     "total": 51,
@@ -177,22 +220,22 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
     {"item": "Datos personales", "done": false, "weight": 5, "key": "datosPersonales"},
     {"item": "Empresa identificada", "done": true, "weight": 1, "key": "empresaIdentificada"}
   ],
-  "companyResponse": null,
-  "claimGenerated": false,
-  "pdfGenerated": false
+  "company_response": null,
+  "claim_generated": false,
+  "pdf_generated": false
 }
 ```
 
-### Estructura de companyResponse (cuando se llena):
+### Estructura de company_response (cuando se llena):
 ```json
 {
-  "companyResponse": {
-    "originalText": "Lamentamos informarle que...",
-    "analyzedAt": "2026-06-09T12:00:00Z",
+  "company_response": {
+    "original_text": "Lamentamos informarle que...",
+    "analyzed_at": "2026-06-09T12:00:00Z",
     "analysis": "La empresa rechaza pero no responde a la evidencia del embalaje...",
     "weaknesses": ["No menciona garantía", "Plazo excedido"],
     "recommendation": "Enviar respuesta firme adjuntando evidencia",
-    "counterReply": "Contrarespuesta generada..."
+    "counter_reply": "Contrarespuesta generada..."
   }
 }
 ```
@@ -253,12 +296,11 @@ Ninguno de los modelos disponibles tiene capacidad de visión. Esto significa:
 ## 5. Endpoints Necesarios
 
 ```
-POST   /api/session/new              → Crea nueva sesión
-POST   /api/session/:id/message      → Envía mensaje del usuario
-POST   /api/session/:id/upload       → Sube archivo (imagen/doc)
-GET    /api/session/:id/state        → Obtiene estado actual (score, checklist, data)
+POST   /api/session/new              → Crea nueva sesión en Supabase
+POST   /api/session/:id/message      → Envía mensaje + streaming de respuesta
+POST   /api/session/:id/upload       → Sube archivo a Supabase Storage + análisis MiMo
+GET    /api/session/:id/state        → Obtiene estado actual desde Supabase
 POST   /api/session/:id/generate     → Genera expediente completo
-POST   /api/session/:id/pdf          → Genera y descarga PDF
 POST   /api/session/:id/company-reply → Analiza respuesta de empresa
 POST   /api/session/:id/counter      → Genera contrarespuesta
 ```
@@ -276,26 +318,23 @@ Response: {
 #### POST /api/session/:id/message
 ```json
 Request: { "message": "Me ha llegado una cafetera rota" }
-Response: {
-  "reply": "Parece una reclamación por producto dañado...",
-  "claimType": "damaged_product",
-  "claimTypeLabel": "Producto recibido dañado",
-  "score": { "total": 32, "breakdown": {...} },
-  "checklist": [...],
-  "extractedData": {...},
-  "timeline": [...],
-  "isComplete": false
-}
+Response: Streaming (Vercel AI SDK) — texto carácter por carácter
 ```
 
 #### POST /api/session/:id/upload
 ```json
 Request: multipart/form-data con archivo
 Response: {
-  "evidence": { "id": "ev1", "type": "image", "url": "...", "description": "" },
+  "evidence": {
+    "id": "ev1",
+    "type": "image",
+    "url": "https://supabase.co/storage/...",
+    "description": "",
+    "ai_analysis": "Se observa un golpe en la esquina..."
+  },
   "score": { "total": 51, ... },
   "checklist": [...],
-  "aiComment": "Esto refuerza el caso porque..."
+  "aiComment": "He analizado la imagen y se confirma el daño en el embalaje..."
 }
 ```
 
@@ -322,14 +361,8 @@ Response: {
   "summary": "Resumen del caso...",
   "timeline": [...],
   "nextSteps": ["Enviar por registro...", "Guardar copias..."],
-  "checklist": "Próximos pasos...",
-  "pdfAvailable": true
+  "checklist": "Próximos pasos..."
 }
-```
-
-#### POST /api/session/:id/pdf
-```json
-Response: Binary PDF file (Content-Type: application/pdf)
 ```
 
 #### POST /api/session/:id/company-reply
@@ -502,6 +535,21 @@ Tono: respetuoso pero inequívocamente firme.
 Extensión: 1 página.
 ```
 
+### Prompt 7: Análisis de imagen (MiMo 2.5)
+
+```
+Eres un analista de evidencia visual para reclamaciones.
+
+Analiza esta imagen y describe:
+1. ¿Qué se ve en la imagen?
+2. ¿Hay daños visibles? Descríbelos con detalle.
+3. ¿El daño parece reciente o antiguo?
+4. ¿Hay elementos que ayuden a identificar el producto, embalaje o contexto?
+5. ¿La imagen es útil como prueba para una reclamación?
+
+Sé objetivo y descriptivo. No inventes información que no esté visible.
+```
+
 ---
 
 ## 7. División de Tareas
@@ -511,23 +559,23 @@ Extensión: 1 página.
 #### Día 1 (Martes 9)
 - [ ] Configurar proyecto Next.js
 - [ ] Crear estructura de carpetas
-- [ ] Implementar endpoint `POST /api/session/new`
-- [ ] Implementar endpoint `POST /api/session/:id/message`
+- [ ] Implementar endpoint `POST /api/session/new` (crear sesión en Supabase)
+- [ ] Implementar endpoint `POST /api/session/:id/message` (con streaming)
+- [ ] Integrar Vercel AI SDK para streaming
 - [ ] Integrar modelo de IA para detección de tipo de reclamación
 - [ ] Integrar modelo de IA para generación de siguiente pregunta
 
 #### Día 2 (Miércoles 10)
 - [ ] Implementar cálculo de score (Prompt 3) con factores dinámicos por tipo
 - [ ] Implementar `GET /api/session/:id/state`
-- [ ] Implementar `POST /api/session/:id/upload` (subida de archivos)
-- [ ] Almacenamiento de sesión (JSON en memoria o archivo)
+- [ ] Implementar `POST /api/session/:id/upload` (subida a Supabase Storage + análisis MiMo)
+- [ ] Integrar MiMo 2.5 para análisis de imagen (Prompt 7)
 - [ ] Testear flujo completo: mensaje → tipo → pregunta → score
 
 #### Día 3 (Jueves 11)
 - [ ] Implementar `POST /api/session/:id/generate` (generación de reclamación)
 - [ ] Integrar Prompt 4 para reclamación formal
-- [ ] Generación de PDF (usar @react-pdf/renderer)
-- [ ] Implementar `POST /api/session/:id/pdf`
+- [ ] Asegurar que los datos de sesión se guardan correctamente en Supabase
 
 #### Día 4 (Viernes 12)
 - [ ] Implementar `POST /api/session/:id/company-reply`
@@ -544,34 +592,37 @@ Extensión: 1 página.
 
 ---
 
-### Jospaquim — Frontend
+### Jose — Frontend
 
 #### Día 1 (Martes 9)
 - [ ] Configurar interfaz base
-- [ ] Crear layout de dos paneles (chat + sidebar)
-- [ ] Implementar componente de chat básico
+- [ ] Crear layout tipo NotebookLM (3 columnas)
+- [ ] Columna izquierda: conversación / preguntas de la IA
+- [ ] Columna central: respuestas del usuario + subida de archivos
+- [ ] Columna derecha: panel de expediente vivo
 - [ ] Conexión con endpoint de sesión
-- [ ] Primer mensaje funcional
+- [ ] Primer mensaje funcional con streaming
 
 #### Día 2 (Miércoles 10)
-- [ ] Chat con mensajes de usuario y IA
-- [ ] Renderizado de mensajes (texto + markdown)
+- [ ] Streaming de mensajes con Vercel AI SDK
+- [ ] Renderizado de mensajes en tiempo real
 - [ ] Input de texto con botón enviar
 - [ ] Panel lateral con score y checklist
-- [ ] Polling o actualización de estado
+- [ ] Subida de archivos a Supabase Storage desde el frontend
 
 #### Día 3 (Jueves 11)
-- [ ] Subida de archivos en el chat
 - [ ] Preview de imágenes subidas
 - [ ] Indicador de "la IA está escribiendo..."
 - [ ] Animación de score subiendo
 - [ ] Panel lateral con pruebas aportadas/pendientes
+- [ ] Análisis visual: mostrar descripción de MiMo 2.5 al usuario
 
 #### Día 4 (Viernes 12)
 - [ ] Vista de expediente generado
 - [ ] Vista de análisis de respuesta de empresa
 - [ ] Input para pegar respuesta de empresa
 - [ ] Vista de contrarespuesta
+- [ ] Renderizado de PDF en cliente (@react-pdf/renderer)
 - [ ] Botón de descarga PDF
 
 #### Día 5 (Sábado 13)
@@ -591,9 +642,10 @@ Extensión: 1 página.
 - [ ] Definir prompts detallados junto a Norbert
 - [ ] Crear flujo de demo paso a paso
 - [ ] Definir datos del caso demo principal (cafetera)
+- [ ] Configurar Supabase (tablas + storage)
 
 #### Día 2 (Miércoles 10)
-- [ ] Revisar progreso de Norbert y Jospaquim
+- [ ] Revisar progreso de Norbert y Jose
 - [ ] Ajustar prompts según resultados
 - [ ] Crear caso demo completo (cafetera rota)
 - [ ] Preparar respuestas del usuario para el demo
@@ -607,8 +659,8 @@ Extensión: 1 página.
 - [ ] Definir narrativa del pitch
 
 #### Día 4 (Viernes 12)
-- [ ] Pulir UI junto a Jospaquim
-- [ ] Coordinar generación de PDF
+- [ ] Pulir UI junto a Jose
+- [ ] Coordinar generación de PDF en cliente
 - [ ] Preparar datos para ambos demos
 - [ ] Ensayar la demo
 - [ ] Preparar pitch de 3 minutos
@@ -625,54 +677,54 @@ Extensión: 1 página.
 ## 8. Plan por Días (Martes 9 - Sábado 13)
 
 ### Martes 9 — Fundamentos
-**Objetivo:** Tener el proyecto andando con chat funcional básico.
+**Objetivo:** Tener el proyecto andando con layout NotebookLM y streaming funcional.
 
 | Persona | Tarea |
 |---------|-------|
-| Norbert | Setup proyecto, endpoints básicos, integración de modelo IA |
-| Jospaquim | Layout dos paneles, chat básico, conexión con API |
-| Daniel | Definir stack, prompts, caso demo, estructura |
+| Norbert | Setup proyecto, endpoints básicos, streaming con Vercel AI SDK |
+| Jose | Layout 3 columnas tipo NotebookLM, conexión con API, streaming |
+| Daniel | Definir stack, prompts, Supabase, caso demo, estructura |
 
-**Entregable del día:** Chat funcional que detecta tipo de reclamación y hace una pregunta.
+**Entregable del día:** Layout NotebookLM funcional con streaming de IA que detecta tipo de reclamación.
 
 ---
 
 ### Miércoles 10 — Motor de datos
-**Objetivo:** Tener score, checklist y subida de archivos funcionando.
+**Objetivo:** Tener score, checklist, subida de archivos y análisis visual funcionando.
 
 | Persona | Tarea |
 |---------|-------|
-| Norbert | Score dinámico por tipo, estado de sesión, subida de archivos |
-| Jospaquim | Chat completo, panel lateral, polling |
+| Norbert | Score dinámico, estado de sesión, subida a Supabase + análisis MiMo |
+| Jose | Streaming completo, panel lateral, subida de archivos desde frontend |
 | Daniel | Ajustar prompts, preparar caso demo cafetera |
 
-**Entregable del día:** El usuario puede chatear, subir foto, y ver el score subir.
+**Entregable del día:** El usuario puede chatear, subir foto, la IA la analiza visualmente, y el score sube.
 
 ---
 
 ### Jueves 11 — Generación
-**Objetivo:** Generar reclamación formal y PDF.
+**Objetivo:** Generar reclamación formal.
 
 | Persona | Tarea |
 |---------|-------|
-| Norbert | Generación de reclamación, PDF |
-| Jospaquim | Subida de archivos con preview, animaciones |
+| Norbert | Generación de reclamación, datos en Supabase |
+| Jose | Preview de imágenes, animaciones, panel lateral completo |
 | Daniel | Coordinar integración, crear caso demo hotel, probar end-to-end |
 
-**Entregable del día:** Flujo completo: chat → reclamación → PDF descargable.
+**Entregable del día:** Flujo completo: chat → análisis visual → reclamación.
 
 ---
 
-### Viernes 12 — Contrarespuesta + Pulido
-**Objetivo:** Tener análisis de respuesta negativa y UI pulida.
+### Viernes 12 — Contrarespuesta + PDF + Pulido
+**Objetivo:** Tener análisis de respuesta negativa, PDF en cliente y UI pulida.
 
 | Persona | Tarea |
 |---------|-------|
 | Norbert | Análisis de respuesta, contrarespuesta |
-| Jospaquim | Vista de análisis, contrarespuesta, botón PDF |
+| Jose | Vista de análisis, contrarespuesta, PDF con @react-pdf/renderer |
 | Daniel | Pulir UI, preparar pitch, ensayar demo con ambos casos |
 
-**Entregable del día:** Demo completa funcional con contrarespuesta.
+**Entregable del día:** Demo completa funcional con PDF descargable y contrarespuesta.
 
 ---
 
@@ -682,7 +734,7 @@ Extensión: 1 página.
 | Persona | Tarea |
 |---------|-------|
 | Norbert | Bugfixing final, soporte |
-| Jospaquim | Últimos ajustes UI |
+| Jose | Últimos ajustes UI |
 | Daniel | Ensayo final, presentación |
 
 **Entregable del día:** Demo presentada al jurado.
@@ -692,21 +744,22 @@ Extensión: 1 página.
 ## 9. Qué Debe Estar Listo Sí o Sí para la Demo
 
 ### Crítico (sin esto no hay demo):
-1. Chat funcional con IA que responde
-2. Detección automática de tipo de reclamación
-3. Preguntas dinámicas (al menos 3-4 preguntas)
-4. Panel lateral con score visual (animación de subida)
-5. Checklist visual con pruebas aportadas/pendientes
-6. Generación de reclamación formal
-7. PDF descargable del expediente
-8. Interfaz pulida y profesional
+1. Layout NotebookLM funcional (3 columnas)
+2. Streaming de IA en tiempo real
+3. Detección automática de tipo de reclamación
+4. Preguntas dinámicas (al menos 3-4 preguntas)
+5. Panel lateral con score visual (animación de subida)
+6. Checklist visual con pruebas aportadas/pendientes
+7. Subida de imágenes con análisis visual (MiMo 2.5)
+8. Generación de reclamación formal
+9. PDF descargable del expediente (renderizado en cliente)
+10. Interfaz pulida y profesional
 
 ### Importante (mejora mucho la demo):
-9. Subida de imágenes con preview
-10. Comentario de la IA al subir evidencia ("esto refuerza tu caso")
-11. Análisis de respuesta negativa
-12. Contrarespuesta generada
-13. Segundo caso demo funcional (hotel)
+11. Comentario de la IA al analizar imagen ("he detectado daño en el embalaje...")
+12. Análisis de respuesta negativa
+13. Contrarespuesta generada
+14. Segundo caso demo funcional (hotel)
 
 ---
 
@@ -727,9 +780,11 @@ Extensión: 1 página.
 
 | Riesgo | Impacto | Mitigación |
 |--------|---------|------------|
-| Modelos sin visión (Qwen/DeepSeek/MiMo) | Medio | La IA pide descripción textual de las imágenes. Score se actualiza con confirmación + descripción del usuario. |
+| MiMo 2.5 no funciona bien con visión | Alto | Tener fallback: IA pide descripción textual. El score se actualiza igual. |
+| Streaming con Vercel AI SDK complejo | Medio | Norbert y Jose lo prueban juntos el día 1. Documentación de Vercel clara. |
+| Supabase Storage lento o caído | Medio | Tener URLs mock preparadas para la demo. Cache local de sesiones. |
 | IA genera JSON inválido | Alto | Validación estricta + fallbacks. Reintentar 1 vez, luego usar respuesta por defecto. |
-| PDF complejo de generar | Medio | Usar @react-pdf/renderer (ya integrado con React). Si falla, generar HTML y "Imprimir como PDF". |
+| PDF en cliente no se renderiza bien | Medio | Probar con @react-pdf/renderer el día 3. Si falla, generar HTML y "Imprimir como PDF". |
 | Frontend no conecta con backend | Alto | Empezar la integración el día 1. No construir en paralelo sin probar conexión. |
 | Score no es consistente | Medio | Prompt de scoring con ejemplos. Validar que suma 100. Cache de cálculos. |
 | Tiempo insuficiente | Alto | MVP ultra-minimalista: chat + score + 1 generación. Lo demás es bonus. |
@@ -744,22 +799,22 @@ Extensión: 1 página.
 > "¿Alguna vez han recibido un producto roto y no sabían cómo reclamar? O peor: han reclamado y la empresa les ha dicho que no. AutoclAIm es una IA que no solo escribe reclamaciones: construye casos sólidos, paso a paso."
 
 ### Minuto 0:30-2:00: Demo Caso 1 — Cafetera rota
-**Acción:** Abrir la app. Escribir:
+**Acción:** Abrir la app (layout NotebookLM). Escribir en la columna central:
 > "Me ha llegado una cafetera rota. La caja venía golpeada y quiero reclamar."
 
-**Pantalla:** La IA detecta "Producto recibido dañado". Pregunta: "¿Tienes foto de la caja tal como llegó?"
+**Pantalla:** La IA responde en streaming en la columna izquierda. Detecta "Producto recibido dañado". Pregunta: "¿Tienes foto de la caja tal como llegó?"
 
-**Acción:** Subir una foto (preparada).
+**Acción:** Subir una foto (preparada) → se sube a Supabase Storage → MiMo 2.5 la analiza.
 
-**Pantalla:** Score sube de 32 a 51. Panel lateral se actualiza. IA comenta: "Esto refuerza tu caso porque muestra posible daño durante el transporte."
+**Pantalla:** La IA comenta: "He analizado la imagen. Se confirma un golpe en la esquina superior derecha de la caja. Esto refuerza tu caso." Score sube de 32 a 51. Panel derecho se actualiza.
 
 **Acción:** Responder con datos (factura, fecha, importe).
 
-**Pantalla:** Score sube a 78. Checklist se va completando.
+**Pantalla:** Score sube a 78. Checklist se va completando en el panel derecho.
 
 **Acción:** Pulsar "Generar expediente"
 
-**Pantalla:** Reclamación formal aparece. PDF descargable.
+**Pantalla:** Reclamación formal aparece. Botón "Descargar PDF" → se renderiza en cliente y se descarga.
 
 ### Minuto 2:00-2:30: Transición
 > "Pero AutoclAIm no sirve solo para productos. Miren este otro caso."
@@ -770,7 +825,7 @@ Extensión: 1 página.
 
 **Pantalla:** La IA detecta "Hotel en mal estado". Pregunta: "¿Tienes fotos de los problemas? ¿Comunicaste algo en recepción?"
 
-**Acción:** Subir fotos y responder.
+**Acción:** Subir fotos → MiMo 2.5 analiza.
 
 **Pantalla:** Score sube. IA adapta sus preguntas al contexto hotelero (reserva, precio, respuesta del hotel).
 
@@ -794,44 +849,46 @@ Extensión: 1 página.
 AutoclAIm/
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx              # Página principal
+│   │   ├── page.tsx              # Página principal (layout NotebookLM)
 │   │   ├── layout.tsx            # Layout global
 │   │   ├── globals.css           # Estilos globales
 │   │   └── api/
 │   │       ├── session/
-│   │       │   ├── new/route.ts          # Crear sesión
+│   │       │   ├── new/route.ts          # Crear sesión en Supabase
 │   │       │   └── [id]/
-│   │       │       ├── message/route.ts  # Enviar mensaje
-│   │       │       ├── upload/route.ts   # Subir archivo
-│   │       │       ├── state/route.ts    # Estado actual
+│   │       │       ├── message/route.ts  # Enviar mensaje + streaming
+│   │       │       ├── upload/route.ts   # Subir a Supabase + análisis MiMo
+│   │       │       ├── state/route.ts    # Estado actual desde Supabase
 │   │       │       ├── generate/route.ts # Generar expediente
-│   │       │       ├── pdf/route.ts      # Generar PDF
 │   │       │       ├── company-reply/route.ts # Analizar respuesta
 │   │       │       └── counter/route.ts  # Contrarespuesta
 │   ├── components/
-│   │   ├── Chat.tsx               # Componente de chat
-│   │   ├── Message.tsx            # Mensaje individual
-│   │   ├── Sidebar.tsx            # Panel lateral
+│   │   ├── NotebookLayout.tsx     # Layout 3 columnas tipo NotebookLM
+│   │   ├── ConversationPanel.tsx  # Columna izquierda: preguntas IA
+│   │   ├── ResponsePanel.tsx      # Columna central: respuestas + upload
+│   │   ├── Sidebar.tsx            # Columna derecha: expediente vivo
 │   │   ├── ScoreGauge.tsx         # Indicador de score
 │   │   ├── Checklist.tsx          # Checklist visual
-│   │   ├── FileUpload.tsx         # Subida de archivos
+│   │   ├── FileUpload.tsx         # Subida de archivos a Supabase
+│   │   ├── ImagePreview.tsx       # Preview con análisis MiMo
 │   │   ├── ClaimView.tsx          # Vista de reclamación
-│   │   └── CompanyReply.tsx       # Vista de contrarespuesta
+│   │   ├── CompanyReply.tsx       # Vista de contrarespuesta
+│   │   └── PDFDownload.tsx        # Botón de descarga PDF (cliente)
 │   ├── lib/
 │   │   ├── ai.ts                  # Cliente de IA (Qwen/DeepSeek/MiMo)
-│   │   ├── sessions.ts            # Gestión de sesiones
+│   │   ├── supabase.ts            # Cliente Supabase
+│   │   ├── sessions.ts            # Gestión de sesiones en Supabase
 │   │   ├── scoring.ts             # Cálculo de score
 │   │   ├── prompts.ts             # Todos los prompts
-│   │   └── pdf.ts                 # Generación de PDF
+│   │   └── pdf.ts                 # Generación de PDF en cliente
 │   └── types/
 │       └── index.ts               # Tipos TypeScript
 ├── public/
-│   └── uploads/                   # Archivos subidos
 ├── .gitignore
 ├── package.json
 ├── tsconfig.json
 ├── next.config.js
-└── .env.local                     # API keys de modelos
+└── .env.local                     # API keys + Supabase URL
 ```
 
 ---
@@ -843,8 +900,8 @@ AutoclAIm/
 > "Me ha llegado una cafetera rota. La caja venía golpeada y quiero reclamar."
 
 **Datos que irá aportando:**
-- Foto de la caja golpeada
-- Foto de la cafetera con la base partida
+- Foto de la caja golpeada (analizada por MiMo 2.5)
+- Foto de la cafetera con la base partida (analizada por MiMo 2.5)
 - Factura de Amazon: 189€
 - Fecha de entrega: hace 2 días
 - Número de pedido: AMZ-2026-78542
@@ -859,8 +916,8 @@ AutoclAIm/
 > "Me alojé en un hotel y la habitación estaba sucia, el aire acondicionado no funcionaba y había cucarachas."
 
 **Datos que irá aportando:**
-- Fotos de la habitación sucia
-- Fotos de las cucarachas
+- Fotos de la habitación sucia (analizadas por MiMo 2.5)
+- Fotos de las cucarachas (analizadas por MiMo 2.5)
 - Reserva confirmada: Hotel Paradiso, 3 noches, 285€
 - Comunicó en recepción → le dijeron "no podemos hacer nada"
 - No le ofrecieron alternativa
@@ -876,7 +933,8 @@ AutoclAIm/
 
 Antes de empezar el martes:
 
-- [ ] API keys de Qwen 3.6, DeepSeek y/o MiMo v2.5
+- [ ] API keys de Qwen 3.6, DeepSeek y MiMo v2.5
+- [ ] Cuenta de Supabase (gratuita) con proyecto creado
 - [ ] Node.js instalado
 - [ ] Cuenta de Vercel para deploy
 - [ ] Repo creado en GitHub
@@ -884,8 +942,9 @@ Antes de empezar el martes:
 - [ ] Caso demo cafetera preparado (datos, fotos, respuestas)
 - [ ] Caso demo hotel preparado (datos, fotos, respuestas)
 - [ ] Prompts finales revisados por el equipo
-- [ ] Estrategia para imágenes sin visión definida (descripción textual)
+- [ ] Estrategia de streaming definida (Vercel AI SDK)
+- [ ] Layout NotebookLM diseñado (3 columnas)
 
 ---
 
-*Documento generado para la hackathon AutoclAIm — Martes 9 de Junio 2026*
+*Documento generado para la hackathon AutoclAIm v2 — Martes 9 de Junio 2026*
