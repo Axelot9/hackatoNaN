@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:api": "node test-api.mjs",
+    "test:api:prod": "API_URL=${API_URL:-https://your-deployed-url.vercel.app} node test-api.mjs"
   },
   "dependencies": {
     "ai": "^6.0.199",
