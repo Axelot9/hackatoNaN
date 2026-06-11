@@ -1,17 +1,4 @@
-import { convertToModelMessages, streamText } from "ai";
-import { buildDetectionPrompt, buildNextQuestionPrompt } from "./prompts";
 import { ClaimType } from "@/types";
-
-// Placeholder: mock AI provider. Wire real keys in .env.local later.
-const MOCK_PROVIDER = {
-  async *stream({ prompt }: { prompt: string }) {
-    const words = prompt.split(" ");
-    for (const word of words.slice(0, 30)) {
-      yield word + " ";
-      await sleep(30);
-    }
-  },
-};
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,6 +8,9 @@ export function detectClaimType(message: string): ClaimType {
   const lower = message.toLowerCase();
   if (lower.includes("cafetera") || lower.includes("rota") || lower.includes("dañado") || lower.includes("golpe")) {
     return "damaged_product";
+  }
+  if (lower.includes("defectuoso") || lower.includes("no funciona") || lower.includes("falla")) {
+    return "defective_product";
   }
   if (lower.includes("hotel") || lower.includes("habitación") || lower.includes("sucia") || lower.includes("cucaracha")) {
     return "bad_hotel";
@@ -45,14 +35,14 @@ export function detectClaimType(message: string): ClaimType {
 
 export async function generateFirstResponse(userMessage: string) {
   const claimType = detectClaimType(userMessage);
-  const prompt = buildDetectionPrompt(userMessage);
 
-  // Mock streaming via ai SDK compatible stream
   const stream = new ReadableStream({
     async start(controller) {
       const responses: Record<ClaimType, string> = {
         damaged_product:
           "Entendido, parece que recibiste un producto dañado. Voy a ayudarte a construir un caso sólido paso a paso. ¿Tienes una foto del producto tal como llegó? Esto será clave como prueba.",
+        defective_product:
+          "Parece que tienes un producto defectuoso. ¿Tienes la factura y fotos del defecto?",
         bad_hotel:
           "Veo que tuviste un problema en un hotel. Te ayudaré a documentarlo correctamente. ¿Tienes fotos de la habitación o los problemas que encontraste?",
         damaged_luggage:
@@ -67,8 +57,6 @@ export async function generateFirstResponse(userMessage: string) {
           "Entiendo que hay un problema con un alquiler. ¿Tienes el contrato y fotos del estado actual?",
         other:
           "Gracias por compartir tu problema. Cuéntame más detalles para poder clasificarlo y ayudarte mejor. ¿Tienes alguna evidencia documental?",
-        defective_product:
-          "Parece que tienes un producto defectuoso. ¿Tienes la factura y fotos del defecto?",
       };
 
       const text = responses[claimType] || responses.other;
@@ -89,8 +77,6 @@ export async function generateNextQuestion(
   previousQuestions: string[],
   score: number
 ) {
-  const prompt = buildNextQuestionPrompt(claimType, extractedData, previousQuestions, score);
-
   const stream = new ReadableStream({
     async start(controller) {
       const questions: Record<string, string[]> = {
@@ -141,7 +127,7 @@ export async function generateNextQuestion(
     },
   });
 
-  return { stream, prompt };
+  return { stream };
 }
 
 export async function analyzeImageMock(): Promise<string> {
