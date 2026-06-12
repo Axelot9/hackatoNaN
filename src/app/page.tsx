@@ -19,7 +19,7 @@ import {
   generateCounterReply,
 } from "@/lib/api";
 import NotebookLayout from "@/components/NotebookLayout";
-import ConversationPanel from "@/components/ConversationPanel";
+import DocumentosPanel from "@/components/DocumentosPanel";
 import ResponsePanel from "@/components/ResponsePanel";
 import Sidebar from "@/components/Sidebar";
 import ClaimView from "@/components/ClaimView";
@@ -171,6 +171,10 @@ export default function Home() {
     [sessionId, isUploading]
   );
 
+  const handleDeleteEvidence = useCallback((id: string) => {
+    setEvidence((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
   const handleGenerateClaim = useCallback(async () => {
     if (!sessionId || isGenerating) return;
     setIsGenerating(true);
@@ -308,8 +312,6 @@ export default function Home() {
     printWindow.document.close();
   }, [generatedClaim, generatedSummary, generatedTimeline, evidence, score.total, sessionId]);
 
-  const assistantMessages = messages.filter((m) => m.role === "assistant");
-
   const renderMainContent = () => {
     switch (activeTab) {
       case "expediente":
@@ -338,9 +340,7 @@ export default function Home() {
         return (
           <ResponsePanel
             onSendMessage={handleSendMessage}
-            onUploadFile={handleUploadFile}
             disabled={isStreaming}
-            isUploading={isUploading}
             messages={messages}
             evidence={evidence}
           />
@@ -440,10 +440,11 @@ export default function Home() {
 
       <NotebookLayout
         left={
-          <ConversationPanel
-            messages={assistantMessages}
-            isStreaming={isStreaming}
-            currentStreamText={currentStreamText}
+          <DocumentosPanel
+            evidence={evidence}
+            onUpload={handleUploadFile}
+            onDelete={handleDeleteEvidence}
+            isUploading={isUploading}
           />
         }
         center={renderMainContent()}

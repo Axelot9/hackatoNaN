@@ -14,8 +14,8 @@ export default function NotebookLayout({ left, center, right }: NotebookLayoutPr
       backgroundColor: "#fff",
     }}>
       <div style={{
-        width: "280px",
-        minWidth: "280px",
+        width: "420px",
+        minWidth: "420px",
         borderRight: "1px solid #e5e7eb",
         backgroundColor: "#fafafa",
         overflow: "hidden",

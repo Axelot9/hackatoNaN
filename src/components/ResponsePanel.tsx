@@ -1,22 +1,17 @@
 import { useState } from "react";
 import { Evidence, Message } from "@/types";
-import FileUpload from "./FileUpload";
 import ImagePreview from "./ImagePreview";
 
 interface ResponsePanelProps {
   onSendMessage: (message: string) => void;
-  onUploadFile: (file: File) => void;
   disabled: boolean;
-  isUploading: boolean;
   messages: Message[];
   evidence: Evidence[];
 }
 
 export default function ResponsePanel({
   onSendMessage,
-  onUploadFile,
   disabled,
-  isUploading,
   messages,
   evidence,
 }: ResponsePanelProps) {
@@ -97,7 +92,6 @@ export default function ResponsePanel({
         flexDirection: "column",
         gap: "8px",
       }}>
-        <FileUpload onUpload={onUploadFile} disabled={disabled} isUploading={isUploading} />
         <div style={{ display: "flex", gap: "8px" }}>
           <textarea
             value={input}

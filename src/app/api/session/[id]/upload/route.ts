@@ -23,18 +23,24 @@ export async function POST(
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  // Mock upload: generate a fake URL instead of Supabase Storage
-  const mockUrl = `https://storage.autoclaim.dev/evidence/${id}/${file.name}`;
+  // Read file into memory as base64 data URL so the frontend can preview it
+  const bytes = await file.arrayBuffer();
+  const base64 = Buffer.from(bytes).toString("base64");
+  const mime = file.type || "application/octet-stream";
+  const dataUrl = `data:${mime};base64,${base64}`;
 
   // Mock MiMo 2.5 analysis
   const aiAnalysis = await analyzeImageMock();
 
+  const isImage = mime.startsWith("image/");
+  const isText = mime === "text/plain";
+
   const evidence = {
     id: uuidv4(),
-    type: file.type.startsWith("image/") ? ("image" as const) : ("document" as const),
-    url: mockUrl,
-    description: `Archivo subido: ${file.name}`,
-    aiAnalysis,
+    type: isImage ? ("image" as const) : ("document" as const),
+    url: dataUrl,
+    description: `${file.name}`,
+    aiAnalysis: isImage ? aiAnalysis : isText ? "Documento de texto registrado como evidencia." : "Documento registrado como evidencia.",
     addedAt: new Date().toISOString(),
   };
 
