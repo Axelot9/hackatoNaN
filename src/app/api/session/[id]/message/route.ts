@@ -53,14 +53,17 @@ export async function POST(
 
   // Extract simple data from message (mock heuristic)
   const extractedData = { ...session.extractedData };
-  if (message.length > 10) {
+  if (message.length > 10 && !extractedData.problema) {
     extractedData.problema = message;
   }
   if (message.match(/\d{4}-\d{2}-\d{2}/)) {
     extractedData.fechaEntrega = message.match(/\d{4}-\d{2}-\d{2}/)?.[0];
   }
   if (message.match(/\d+[.,]?\d*\s*€/)) {
-    extractedData.importe = message.match(/\d+[.,]?\d*/)?.[0];
+    const priceMatch = message.match(/\d+[.,]?\d*\s*€/);
+    if (priceMatch) {
+      extractedData.importe = priceMatch[0].replace("€", "").trim();
+    }
   }
   if (message.toLowerCase().includes("amazon") || message.toLowerCase().includes("tienda")) {
     extractedData.empresaImplicada = "Amazon";
@@ -70,42 +73,45 @@ export async function POST(
   const score = calculateScore(claimType, extractedData, session.evidence);
   const checklist = updateChecklist(session.checklist, score);
 
-  // We need to capture the streamed text to save it
+  // Capture stream and encode properly for response
   const reader = stream.getReader();
   let assistantText = "";
-  const capturedStream = new ReadableStream({
+  const encoder = new TextEncoder();
+  const byteStream = new ReadableStream({
     async start(controller) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        assistantText += value;
-        controller.enqueue(value);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          assistantText += value;
+          controller.enqueue(encoder.encode(value));
+        }
+
+        const assistantMsg = {
+          role: "assistant" as const,
+          content: assistantText,
+          timestamp: new Date().toISOString(),
+        };
+
+        updateSession(id, {
+          messages: [...messages, assistantMsg],
+          claimType,
+          claimTypeLabel,
+          extractedData,
+          score,
+          checklist,
+        });
+      } catch (err) {
+        console.error("Stream error:", err);
+      } finally {
+        controller.close();
       }
-
-      // Save assistant message and updated session after stream completes
-      const assistantMsg = {
-        role: "assistant" as const,
-        content: assistantText,
-        timestamp: new Date().toISOString(),
-      };
-
-      updateSession(id, {
-        messages: [...messages, assistantMsg],
-        claimType,
-        claimTypeLabel,
-        extractedData,
-        score,
-        checklist,
-      });
-
-      controller.close();
     },
   });
 
-  return new Response(capturedStream as unknown as ReadableStream<Uint8Array>, {
+  return new Response(byteStream, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
     },
   });
 }
