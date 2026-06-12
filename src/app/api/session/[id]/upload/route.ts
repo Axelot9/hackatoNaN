@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { getSession, updateSession } from "@/lib/sessions";
 import { calculateScore, updateChecklist } from "@/lib/scoring";
-import { analyzeImageMock } from "@/lib/ai";
+import { analyzeImage } from "@/lib/ai";
 
 export async function POST(
   request: NextRequest,
@@ -29,8 +29,10 @@ export async function POST(
   const mime = file.type || "application/octet-stream";
   const dataUrl = `data:${mime};base64,${base64}`;
 
-  // Mock MiMo 2.5 analysis
-  const aiAnalysis = await analyzeImageMock();
+  // Real AI image analysis (falls back to mock if no API key)
+  const aiAnalysis = mime.startsWith("image/")
+    ? await analyzeImage(base64, mime)
+    : "Documento registrado como evidencia.";
 
   const isImage = mime.startsWith("image/");
   const isText = mime === "text/plain";
