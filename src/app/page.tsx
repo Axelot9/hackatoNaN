@@ -69,6 +69,8 @@ export default function Home() {
   const [isPdfReady, setIsPdfReady] = useState(false);
 
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const uploadQueue = useRef<File[]>([]);
+  const isProcessingUpload = useRef(false);
 
   const pollState = useCallback(async (id: string) => {
     try {
@@ -144,12 +146,14 @@ export default function Home() {
     [sessionId, isStreaming, pollState]
   );
 
-  const handleUploadFile = useCallback(
-    async (file: File) => {
-      if (!sessionId || isUploading) return;
-      setIsUploading(true);
-      setError(null);
+  const processUploadQueue = useCallback(async () => {
+    if (!sessionId || isProcessingUpload.current) return;
+    isProcessingUpload.current = true;
+    setIsUploading(true);
+    setError(null);
 
+    while (uploadQueue.current.length > 0) {
+      const file = uploadQueue.current.shift()!;
       try {
         const result = await uploadEvidence(sessionId, file);
         setEvidence((prev) => [...prev, result.evidence]);
@@ -164,11 +168,20 @@ export default function Home() {
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (err: any) {
         setError(err.message);
-      } finally {
-        setIsUploading(false);
+        break;
       }
+    }
+
+    setIsUploading(false);
+    isProcessingUpload.current = false;
+  }, [sessionId]);
+
+  const handleUploadFile = useCallback(
+    (file: File) => {
+      uploadQueue.current.push(file);
+      processUploadQueue();
     },
-    [sessionId, isUploading]
+    [processUploadQueue]
   );
 
   const handleDeleteEvidence = useCallback((id: string) => {

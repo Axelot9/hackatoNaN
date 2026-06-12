@@ -33,13 +33,9 @@ export default function DocumentosPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const handleFile = (file: File) => {
-    if (!file) return;
+  const validateFile = (file: File): string | null => {
     const maxSize = 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      alert("El archivo es demasiado grande. Máximo 10MB.");
-      return;
-    }
+    if (file.size > maxSize) return `"${file.name}" supera 10MB.`;
     const validTypes = [
       "image/jpeg",
       "image/png",
@@ -47,11 +43,25 @@ export default function DocumentosPanel({
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "text/plain",
     ];
-    if (!validTypes.includes(file.type)) {
-      alert("Solo se aceptan JPG, PNG, DOCX y TXT.");
-      return;
+    if (!validTypes.includes(file.type)) return `"${file.name}" no es un tipo válido.`;
+    return null;
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    const errors: string[] = [];
+    for (const file of fileArray) {
+      const err = validateFile(file);
+      if (err) {
+        errors.push(err);
+      } else {
+        onUpload(file);
+      }
     }
-    onUpload(file);
+    if (errors.length > 0) {
+      alert(errors.join("\n"));
+    }
   };
 
   return (
@@ -81,10 +91,10 @@ export default function DocumentosPanel({
           ref={inputRef}
           type="file"
           accept=".jpg,.jpeg,.png,.docx,.txt"
+          multiple
           style={{ display: "none" }}
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFile(file);
+            handleFiles(e.target.files);
             e.target.value = "";
           }}
         />
@@ -98,8 +108,7 @@ export default function DocumentosPanel({
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) handleFile(file);
+            handleFiles(e.dataTransfer.files);
           }}
           style={{
             border: `2px dashed ${dragOver ? "#3b82f6" : "#d1d5db"}`,
@@ -126,7 +135,7 @@ export default function DocumentosPanel({
               >
                 📎
               </span>
-              Subir fichero
+              Subir fichero(s)
             </>
           )}
         </div>

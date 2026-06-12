@@ -31,8 +31,8 @@ export default function NotebookLayout({ left, center, right }: NotebookLayoutPr
         {center}
       </div>
       <div style={{
-        width: "300px",
-        minWidth: "300px",
+        width: "450px",
+        minWidth: "450px",
         backgroundColor: "#fafafa",
         overflow: "hidden",
       }}>
